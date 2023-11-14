@@ -34,10 +34,6 @@ LiteLLM manages
 
 # Usage ([**Docs**](https://docs.litellm.ai/docs/))
 
-> [!IMPORTANT]
-> LiteLLM v1.0.0 is being launched to require `openai>=1.0.0`. Track this [here](https://github.com/BerriAI/litellm/issues/774)
-
-
 <a target="_blank" href="https://colab.research.google.com/github/BerriAI/litellm/blob/main/cookbook/liteLLM_Getting_Started.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
@@ -109,9 +105,11 @@ $ litellm --model huggingface/bigcode/starcoder
 
 ### Step 2: Replace openai base
 ```python
-import openai
-client = openai.OpenAI(api_key="anything", base_url="http://0.0.0.0:8000")
-print(openai.chat.completions.create(model="test", messages=[{"role":"user", "content":"Hey!"}]))
+import openai 
+
+openai.api_base = "http://0.0.0.0:8000"
+
+print(openai.ChatCompletion.create(model="test", messages=[{"role":"user", "content":"Hey!"}]))
 ```
 
 ## Supported Provider ([Docs](https://docs.litellm.ai/docs/providers))

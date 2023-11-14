@@ -4,7 +4,7 @@ from enum import Enum
 import requests
 import time
 from typing import Callable, Any
-from litellm.utils import ModelResponse, Usage
+from litellm.utils import ModelResponse
 from .prompt_templates.factory import prompt_factory, custom_prompt
 llm = None
 class VLLMError(Exception):
@@ -90,12 +90,9 @@ def completion(
 
         model_response["created"] = time.time()
         model_response["model"] = model
-        usage = Usage(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=prompt_tokens + completion_tokens
-        )
-        model_response.usage = usage
+        model_response.usage.completion_tokens = completion_tokens
+        model_response.usage.prompt_tokens = prompt_tokens
+        model_response.usage.total_tokens = prompt_tokens + completion_tokens
         return model_response
 
 def batch_completions(
@@ -173,12 +170,9 @@ def batch_completions(
 
         model_response["created"] = time.time()
         model_response["model"] = model
-        usage = Usage(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=prompt_tokens + completion_tokens
-        )
-        model_response.usage = usage
+        model_response.usage.completion_tokens = completion_tokens
+        model_response.usage.prompt_tokens = prompt_tokens
+        model_response.usage.total_tokens = prompt_tokens + completion_tokens
         final_outputs.append(model_response)
     return final_outputs
 

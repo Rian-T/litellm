@@ -5,7 +5,7 @@ openai.api_key = "this can be anything"
 print("making request")
 
 api_key = "" 
-response = openai.chat.completions.create(
+response = openai.ChatCompletion.create(
     model = "gpt-3.5-turbo",
     messages = [
         {
@@ -21,7 +21,7 @@ response = openai.chat.completions.create(
 print(response)
 
 
-response = openai.chat.completions.create(
+response = openai.ChatCompletion.create(
     model = "gpt-3.5-turbo",
     messages = [
         {

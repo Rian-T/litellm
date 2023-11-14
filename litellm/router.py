@@ -30,15 +30,11 @@ class Router:
                  redis_port: Optional[int] = None,
                  redis_password: Optional[str] = None,
                  cache_responses: bool = False,
-                 num_retries: Optional[int] = None,
                  routing_strategy: Literal["simple-shuffle", "least-busy"] = "simple-shuffle") -> None:
         if model_list:
             self.set_model_list(model_list)
             self.healthy_deployments: List = self.model_list
         
-        if num_retries: 
-            litellm.num_retries = num_retries
-
         self.routing_strategy = routing_strategy
         ### HEALTH CHECK THREAD ###
         if self.routing_strategy == "least-busy":
@@ -59,8 +55,6 @@ class Router:
         if cache_responses:
             litellm.cache = litellm.Cache(**cache_config) # use Redis for caching completion requests
             self.cache_responses = cache_responses
-        
-        self.chat = litellm.Chat(params={})
 
 
     def _start_health_check_thread(self):

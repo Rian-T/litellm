@@ -34,7 +34,7 @@ def test_tokenizers():
         # assert that all token values are different
         assert openai_tokens != cohere_tokens != llama2_tokens, "Token values are not different."
         
-        print("test tokenizer: It worked!")
+        return "It worked!"
     except Exception as e: 
         pytest.fail(f'An exception occured: {e}')
 

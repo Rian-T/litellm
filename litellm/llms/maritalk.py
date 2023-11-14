@@ -4,7 +4,7 @@ from enum import Enum
 import requests
 import time, traceback
 from typing import Callable, Optional, List
-from litellm.utils import ModelResponse, Choices, Message, Usage
+from litellm.utils import ModelResponse, Choices, Message
 import litellm
 
 class MaritalkError(Exception):
@@ -145,12 +145,9 @@ def completion(
 
         model_response["created"] = time.time()
         model_response["model"] = model
-        usage = Usage(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=prompt_tokens + completion_tokens
-        )
-        model_response.usage = usage
+        model_response.usage.completion_tokens = completion_tokens
+        model_response.usage.prompt_tokens = prompt_tokens
+        model_response.usage.total_tokens = prompt_tokens + completion_tokens
         return model_response
 
 def embedding(

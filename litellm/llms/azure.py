@@ -4,20 +4,12 @@ from .base import BaseLLM
 from litellm.utils import ModelResponse, Choices, Message, CustomStreamWrapper, convert_to_model_response_object
 from typing import Callable, Optional
 from litellm import OpenAIConfig
-import httpx
+import aiohttp
 
 class AzureOpenAIError(Exception):
-    def __init__(self, status_code, message, request: Optional[httpx.Request]=None, response: Optional[httpx.Response]=None):
+    def __init__(self, status_code, message):
         self.status_code = status_code
         self.message = message
-        if request:
-            self.request = request
-        else:
-            self.request = httpx.Request(method="POST", url="https://api.openai.com/v1")
-        if response:
-            self.response = response
-        else:
-            self.response = httpx.Response(status_code=status_code, request=self.request)
         super().__init__(
             self.message
         )  # Call the base class constructor with the parameters it needs
@@ -72,7 +64,7 @@ class AzureOpenAIConfig(OpenAIConfig):
                          top_p)
 
 class AzureChatCompletion(BaseLLM):
-    _client_session: httpx.Client
+    _client_session: requests.Session
 
     def __init__(self) -> None:
         super().__init__()
@@ -134,7 +126,17 @@ class AzureChatCompletion(BaseLLM):
                 else:
                     return self.acompletion(api_base=api_base, data=data, headers=headers, model_response=model_response)
             elif "stream" in optional_params and optional_params["stream"] == True:
-                return self.streaming(logging_obj=logging_obj, api_base=api_base, data=data, headers=headers, model_response=model_response, model=model)
+                response = self._client_session.post(
+                    url=api_base,
+                    json=data,
+                    headers=headers,
+                    stream=optional_params["stream"]
+                )
+                if response.status_code != 200:
+                    raise AzureOpenAIError(status_code=response.status_code, message=response.text)
+                    
+                ## RESPONSE OBJECT
+                return response.iter_lines()
             else:
                 response = self._client_session.post(
                     url=api_base,
@@ -150,61 +152,39 @@ class AzureChatCompletion(BaseLLM):
             exception_mapping_worked = True
             raise e
         except Exception as e: 
-            raise e
+            if exception_mapping_worked: 
+                raise e
+            else: 
+                import traceback
+                raise AzureOpenAIError(status_code=500, message=traceback.format_exc())
     
     async def acompletion(self, api_base: str, data: dict, headers: dict, model_response: ModelResponse): 
-       async with httpx.AsyncClient(timeout=600) as client:
-            response = await client.post(api_base, json=data, headers=headers) 
-            response_json = response.json()
-            if response.status_code != 200:
-                raise AzureOpenAIError(status_code=response.status_code, message=response.text)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_base, json=data, headers=headers, ssl=False) as response:
+                response_json = await response.json()
+                if response.status != 200:
+                    raise AzureOpenAIError(status_code=response.status, message=response.text)
                 
 
-            ## RESPONSE OBJECT
-            return convert_to_model_response_object(response_object=response_json, model_response_object=model_response)
-
-    def streaming(self,
-                  logging_obj,
-                  api_base: str, 
-                  data: dict, 
-                  headers: dict, 
-                  model_response: ModelResponse, 
-                  model: str
-    ):
-        with self._client_session.stream(
-                    url=f"{api_base}",
-                    json=data,
-                    headers=headers,
-                    method="POST"
-                ) as response: 
-                    if response.status_code != 200:
-                        raise AzureOpenAIError(status_code=response.status_code, message=response.text)
-                    
-                    completion_stream = response.iter_lines()
-                    streamwrapper = CustomStreamWrapper(completion_stream=completion_stream, model=model, custom_llm_provider="azure",logging_obj=logging_obj)
-                    for transformed_chunk in streamwrapper:
-                        yield transformed_chunk
+                ## RESPONSE OBJECT
+                return convert_to_model_response_object(response_object=response_json, model_response_object=model_response)
 
     async def async_streaming(self, 
                           logging_obj,
                           api_base: str, 
-                          data: dict, 
-                          headers: dict, 
+                          data: dict, headers: dict, 
                           model_response: ModelResponse, 
                           model: str):
-        client = httpx.AsyncClient()
-        async with client.stream(
-                    url=f"{api_base}",
-                    json=data,
-                    headers=headers,
-                    method="POST"
-                ) as response: 
-            if response.status_code != 200:
-                raise AzureOpenAIError(status_code=response.status_code, message=response.text)
-            
-            streamwrapper = CustomStreamWrapper(completion_stream=response.aiter_lines(), model=model, custom_llm_provider="azure",logging_obj=logging_obj)
-            async for transformed_chunk in streamwrapper:
-                yield transformed_chunk
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_base, json=data, headers=headers, ssl=False) as response:
+                # Check if the request was successful (status code 200)
+                if response.status != 200:
+                    raise AzureOpenAIError(status_code=response.status, message=await response.text())
+                
+                # Handle the streamed response
+                stream_wrapper = CustomStreamWrapper(completion_stream=response, model=model, custom_llm_provider="azure",logging_obj=logging_obj)
+                async for transformed_chunk in stream_wrapper:
+                    yield transformed_chunk
 
     def embedding(self,
                 model: str,

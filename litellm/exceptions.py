@@ -8,103 +8,92 @@
 #  Thank you users! We ❤️ you! - Krrish & Ishaan
 
 ## LiteLLM versions of the OpenAI Exception Types
-
-from openai import (
+from openai.error import (
     AuthenticationError,
-    BadRequestError,
+    InvalidRequestError,
     RateLimitError,
-    APIStatusError,
+    ServiceUnavailableError,
     OpenAIError,
     APIError, 
-    APITimeoutError, 
+    Timeout, 
     APIConnectionError, 
 )
-import httpx
+
 
 class AuthenticationError(AuthenticationError):  # type: ignore
-    def __init__(self, message, llm_provider, model, response: httpx.Response):
+    def __init__(self, message, llm_provider, model):
         self.status_code = 401
         self.message = message
         self.llm_provider = llm_provider
         self.model = model
         super().__init__(
-            self.message,
-            response=response,
-            body=None
+            self.message
         )  # Call the base class constructor with the parameters it needs
 
-class BadRequestError(BadRequestError):  # type: ignore
-    def __init__(self, message, model, llm_provider, response: httpx.Response):
+
+class InvalidRequestError(InvalidRequestError):  # type: ignore
+    def __init__(self, message, model, llm_provider):
         self.status_code = 400
         self.message = message
         self.model = model
         self.llm_provider = llm_provider
         super().__init__(
-            self.message,
-            response=response,
-            body=None
+            self.message, f"{self.model}"
         )  # Call the base class constructor with the parameters it needs
 
-class Timeout(APITimeoutError):  # type: ignore
+class Timeout(Timeout):  # type: ignore
     def __init__(self, message, model, llm_provider):
         self.status_code = 408
         self.message = message
         self.model = model
         self.llm_provider = llm_provider
-        request = httpx.Request(method="POST", url="https://api.openai.com/v1")
         super().__init__(
-            request=request
+            self.message, f"{self.model}"
         )  # Call the base class constructor with the parameters it needs
 
-class RateLimitError(RateLimitError):  # type: ignore
-    def __init__(self, message, llm_provider, model, response: httpx.Response):
-        self.status_code = 429
-        self.message = message
-        self.llm_provider = llm_provider
-        self.modle = model
-        super().__init__(
-            self.message,
-            response=response,
-            body=None
-        )  # Call the base class constructor with the parameters it needs
-
-# sub class of rate limit error - meant to give more granularity for error handling context window exceeded errors
-class ContextWindowExceededError(BadRequestError):  # type: ignore
-    def __init__(self, message, model, llm_provider, response: httpx.Response):
+# sub class of invalid request error - meant to give more granularity for error handling context window exceeded errors
+class ContextWindowExceededError(InvalidRequestError):  # type: ignore
+    def __init__(self, message, model, llm_provider):
         self.status_code = 400
         self.message = message
         self.model = model
         self.llm_provider = llm_provider
         super().__init__(
-            message=self.message, 
-            model=self.model, # type: ignore
-            llm_provider=self.llm_provider, # type: ignore
-            response=response
+            self.message, self.model, self.llm_provider
         )  # Call the base class constructor with the parameters it needs
 
-class ServiceUnavailableError(APIStatusError):  # type: ignore
-    def __init__(self, message, llm_provider, model, response: httpx.Response):
-        self.status_code = 503
+
+class RateLimitError(RateLimitError):  # type: ignore
+    def __init__(self, message, llm_provider, model):
+        self.status_code = 429
+        self.message = message
+        self.llm_provider = llm_provider
+        self.modle = model
+        super().__init__(
+            self.message
+        )  # Call the base class constructor with the parameters it needs
+
+
+class ServiceUnavailableError(ServiceUnavailableError):  # type: ignore
+    def __init__(self, message, llm_provider, model):
+        self.status_code = 500
         self.message = message
         self.llm_provider = llm_provider
         self.model = model
         super().__init__(
-            self.message,
-            response=response,
-            body=None
+            self.message
         )  # Call the base class constructor with the parameters it needs
 
 
 # raise this when the API returns an invalid response object - https://github.com/openai/openai-python/blob/1be14ee34a0f8e42d3f9aa5451aa4cb161f1781f/openai/api_requestor.py#L401
 class APIError(APIError): # type: ignore 
-    def __init__(self, status_code, message, llm_provider, model, request: httpx.Request):
+    def __init__(self, status_code, message, llm_provider, model):
         self.status_code = status_code 
         self.message = message
         self.llm_provider = llm_provider
         self.model = model
         super().__init__(
-            self.message,
-            request=request # type: ignore
+            self.message
         )
 
 # raised if an invalid request (not get, delete, put, post) is made
@@ -135,14 +124,3 @@ class BudgetExceededError(Exception):
         self.max_budget = max_budget
         message = f"Budget has been exceeded! Current cost: {current_cost}, Max budget: {max_budget}"
         super().__init__(message)
-
-## DEPRECATED ## 
-class InvalidRequestError(BadRequestError):  # type: ignore
-    def __init__(self, message, model, llm_provider):
-        self.status_code = 400
-        self.message = message
-        self.model = model
-        self.llm_provider = llm_provider
-        super().__init__(
-            self.message, f"{self.model}"
-        )  # Call the base class constructor with the parameters it needs

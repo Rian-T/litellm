@@ -1,4 +1,4 @@
-from openai import AuthenticationError, BadRequestError, RateLimitError, OpenAIError
+from openai.error import AuthenticationError, InvalidRequestError, RateLimitError, OpenAIError
 import os
 import sys
 import traceback
@@ -38,25 +38,23 @@ models = ["command-nightly"]
 # Test 1: Context Window Errors 
 @pytest.mark.parametrize("model", models)
 def test_context_window(model):
-    sample_text = "Say error 50 times" * 1000000
+    sample_text = "Say error 50 times" * 100000
     messages = [{"content": sample_text, "role": "user"}]
+    print(f"model: {model}")
     try:
-        litellm.set_verbose = False
-        response = completion(model=model, messages=messages)
-        print(f"response: {response}")
-        print("FAILED!")
+        completion(model=model, messages=messages)
         pytest.fail(f"An exception occurred")
-    except ContextWindowExceededError as e:
-        print(f"Worked!")
+    except ContextWindowExceededError:
+        pass
     except RateLimitError:
-        print("RateLimited!")
+        pass
     except Exception as e: 
         print(f"{e}")
         pytest.fail(f"An error occcurred - {e}")
         
 @pytest.mark.parametrize("model", models)
 def test_context_window_with_fallbacks(model):
-    ctx_window_fallback_dict = {"command-nightly": "claude-2", "gpt-3.5-turbo-instruct": "gpt-3.5-turbo-16k", "azure/chatgpt-v-2": "gpt-3.5-turbo-16k"}
+    ctx_window_fallback_dict = {"command-nightly": "claude-2"}
     sample_text = "how does a court case get to the Supreme Court?" * 1000
     messages = [{"content": sample_text, "role": "user"}]
 
@@ -64,7 +62,7 @@ def test_context_window_with_fallbacks(model):
 
 # for model in litellm.models_by_provider["bedrock"]:
 #     test_context_window(model=model)
-# test_context_window(model="command-nightly")
+# test_context_window(model="gpt-3.5-turbo-instruct")
 # test_context_window_with_fallbacks(model="command-nightly")
 # Test 2: InvalidAuth Errors
 @pytest.mark.parametrize("model", models)
@@ -75,7 +73,7 @@ def invalid_auth(model):  # set the model key to an invalid key, depending on th
         if model == "gpt-3.5-turbo" or model == "gpt-3.5-turbo-instruct":
             temporary_key = os.environ["OPENAI_API_KEY"]
             os.environ["OPENAI_API_KEY"] = "bad-key"
-        elif "bedrock" in model:
+        elif model == "bedrock/anthropic.claude-v2":
             temporary_aws_access_key = os.environ["AWS_ACCESS_KEY_ID"]
             os.environ["AWS_ACCESS_KEY_ID"] = "bad-key"
             temporary_aws_region_name = os.environ["AWS_REGION_NAME"]
@@ -160,17 +158,17 @@ def invalid_auth(model):  # set the model key to an invalid key, depending on th
 
 # for model in litellm.models_by_provider["bedrock"]:
 #     invalid_auth(model=model)
-# invalid_auth(model="command-nightly")
+# invalid_auth(model="gpt-3.5-turbo-instruct")
 
 # Test 3: Invalid Request Error 
 @pytest.mark.parametrize("model", models)
 def test_invalid_request_error(model):
     messages = [{"content": "hey, how's it going?", "role": "user"}]
 
-    with pytest.raises(BadRequestError):
+    with pytest.raises(InvalidRequestError):
         completion(model=model, messages=messages, max_tokens="hello world")
 
-# test_invalid_request_error(model="command-nightly")
+# test_invalid_request_error(model="gpt-3.5-turbo")
 # Test 3: Rate Limit Errors
 # def test_model_call(model):
 #     try:
@@ -180,16 +178,15 @@ def test_invalid_request_error(model):
 #         response = completion(model=model, messages=messages)
 #     except RateLimitError:
 #         return True
-#     # except OpenAIError: # is at least an openai error -> in case of random model errors - e.g. overloaded server
-#     #     return True
+#     except OpenAIError: # is at least an openai error -> in case of random model errors - e.g. overloaded server
+#         return True
 #     except Exception as e:
 #         print(f"Uncaught Exception {model}: {type(e).__name__} - {e}")
 #         traceback.print_exc()
 #         pass
 #     return False
 # # Repeat each model 500 times
-# # extended_models = [model for model in models for _ in range(250)]
-# extended_models = ["gpt-3.5-turbo-instruct" for _ in range(250)]
+# extended_models = [model for model in models for _ in range(250)]
 
 # def worker(model):
 #     return test_model_call(model)

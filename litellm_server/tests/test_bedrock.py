@@ -4,7 +4,7 @@ print("making request")
 openai.api_key = "anything" # this gets passed as a header 
 
 
-response = openai.chat.completions.create(
+response = openai.ChatCompletion.create(
     model = "bedrock/anthropic.claude-instant-v1",
     messages = [
         {
@@ -22,7 +22,7 @@ response = openai.chat.completions.create(
 print(response)
 
 
-# response = openai.chat.completions.create(
+# response = openai.ChatCompletion.create(
 #     model = "gpt-3.5-turbo",
 #     messages = [
 #         {

@@ -205,9 +205,11 @@ def load_router_config(router: Optional[litellm.Router], config_file_path: str):
             with open(config_file_path, 'r') as file:
                 config = yaml.safe_load(file)
         else:
-            raise Exception(f"Path to config does not exist, 'os.path.exists({config_file_path})' returned False")
+            pass
     except Exception as e:
         raise Exception(f"Exception while reading Config: {e}")
+
+        pass
     
     print_verbose(f"Configs passed in, loaded config YAML\n{config}")
     ## LITELLM MODULE SETTINGS (e.g. litellm.drop_params=True,..)
@@ -410,10 +412,7 @@ def data_generator(response):
     print_verbose("inside generator")
     for chunk in response:
         print_verbose(f"returned chunk: {chunk}")
-        try:
-            yield f"data: {json.dumps(chunk.dict())}\n\n"
-        except:
-            yield f"data: {json.dumps(chunk)}\n\n"
+        yield f"data: {json.dumps(chunk)}\n\n"
 
 
 def litellm_completion(*args, **kwargs):

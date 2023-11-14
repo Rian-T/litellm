@@ -116,28 +116,29 @@ def run_server(host, port, api_base, api_version, model, alias, add_key, headers
         print(f"ollama called")
         run_ollama_serve()
     if test != False:
-        click.echo('\nLiteLLM: Making a test ChatCompletions request to your proxy')
+        click.echo('LiteLLM: Making a test ChatCompletions request to your proxy')
         import openai
         if test == True: # flag value set
             api_base = f"http://{host}:{port}"
         else: 
             api_base = test
-        client = openai.OpenAI(
-            api_key="My API Key",
-            base_url=api_base
-        )
+        openai.api_base = api_base
+        openai.api_key = "temp-key"
+        print(openai.api_base)
 
-        response = client.chat.completions.create(model="gpt-3.5-turbo", messages = [
+        response = openai.Completion.create(model="gpt-3.5-turbo", prompt='this is a test request, write a short poem')
+        print(response)
+
+        response = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages = [
             {
                 "role": "user",
                 "content": "this is a test request, write a short poem"
             }
         ])
-        click.echo(f'\nLiteLLM: response from proxy {response}')
+        click.echo(f'LiteLLM: response from proxy {response}')
 
-        print("\n Making streaming request to proxy")
-
-        response = client.chat.completions.create(model="gpt-3.5-turbo", messages = [
+        click.echo(f'LiteLLM: response from proxy with streaming {response}')
+        response = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages = [
             {
                 "role": "user",
                 "content": "this is a test request, write a short poem"
@@ -147,9 +148,6 @@ def run_server(host, port, api_base, api_version, model, alias, add_key, headers
         )
         for chunk in response:
             click.echo(f'LiteLLM: streaming response from proxy {chunk}')
-        print("\n making completion request to proxy")
-        response = client.completions.create(model="gpt-3.5-turbo", prompt='this is a test request, write a short poem')
-        print(response)
 
         return
     else:

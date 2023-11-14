@@ -33,7 +33,7 @@ import openai
 
 openai.api_base = "http://0.0.0.0:8000"
 
-print(openai.chat.completions.create(model="test", messages=[{"role":"user", "content":"Hey!"}]))
+print(openai.ChatCompletion.create(model="test", messages=[{"role":"user", "content":"Hey!"}]))
 ```
 
 ### Supported LLMs
@@ -243,62 +243,6 @@ python gpt4_eval.py -q '../evaluation_set/flask_evaluation.jsonl'
 ```
 </TabItem>
 
-<TabItem value="FastEval" label="Fast Eval">
-
-**Step 1: Start the local proxy**
-see supported models [here](https://docs.litellm.ai/docs/simple_proxy)
-```shell
-$ litellm --model huggingface/bigcode/starcoder
-```
-
-**Step 2: Set OpenAI API Base & Key**
-```shell
-$ export OPENAI_API_BASE=http://0.0.0.0:8000
-```
-
-Set this to anything since the proxy has the credentials
-```shell
-export OPENAI_API_KEY=anything
-```
-
-**Step 3 Run with FastEval** 
-
-**Clone FastEval**
-```shell
-# Clone this repository, make it the current working directory
-git clone --depth 1 https://github.com/FastEval/FastEval.git
-cd FastEval
-```
-
-**Set API Base on FastEval**
-
-On FastEval make the following **2 line code change** to set `OPENAI_API_BASE`
-
-https://github.com/FastEval/FastEval/pull/90/files
-```python
-try:
-    api_base = os.environ["OPENAI_API_BASE"] #changed: read api base from .env
-    if api_base == None:
-        api_base = "https://api.openai.com/v1"
-    response = await self.reply_two_attempts_with_different_max_new_tokens(
-        conversation=conversation,
-        api_base=api_base, # #changed: pass api_base
-        api_key=os.environ["OPENAI_API_KEY"],
-        temperature=temperature,
-        max_new_tokens=max_new_tokens,
-```
-
-**Run FastEval**
-Set `-b` to the benchmark you want to run. Possible values are `mt-bench`, `human-eval-plus`, `ds1000`, `cot`, `cot/gsm8k`, `cot/math`, `cot/bbh`, `cot/mmlu` and `custom-test-data`
-
-Since LiteLLM provides an OpenAI compatible proxy `-t` and `-m` don't need to change
-`-t` will remain openai
-`-m` will remain gpt-3.5
-
-```shell
-./fasteval -b human-eval-plus -t openai -m gpt-3.5-turbo
-```
-</TabItem>
 <TabItem value="mlflow" label="ML Flow Eval">
 
 MLflow provides an API `mlflow.evaluate()` to help evaluate your LLMs https://mlflow.org/docs/latest/llms/llm-evaluate/index.html
@@ -541,7 +485,7 @@ If you're repo let's you set model name, you can call the specific model by just
 import openai 
 openai.api_base = "http://0.0.0.0:8000" 
 
-completion = openai.chat.completions.create(model="zephyr-alpha", messages=[{"role": "user", "content": "Hello world"}])
+completion = openai.ChatCompletion.create(model="zephyr-alpha", messages=[{"role": "user", "content": "Hello world"}])
 print(completion.choices[0].message.content)
 ```
 
@@ -551,7 +495,7 @@ If you're repo only let's you specify api base, then you can add the model name 
 import openai 
 openai.api_base = "http://0.0.0.0:8000/openai/deployments/zephyr-alpha/chat/completions" # zephyr-alpha will be used 
 
-completion = openai.chat.completions.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": "Hello world"}])
+completion = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": "Hello world"}])
 print(completion.choices[0].message.content)
 ```
 

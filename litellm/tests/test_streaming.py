@@ -11,11 +11,10 @@ sys.path.insert(
 from dotenv import load_dotenv
 load_dotenv()
 import litellm
-from litellm import completion, acompletion, AuthenticationError, BadRequestError, RateLimitError, ModelResponse
+from litellm import completion, acompletion, AuthenticationError, InvalidRequestError, RateLimitError
 
 litellm.logging = False
-litellm.set_verbose = True
-litellm.num_retries = 3
+litellm.set_verbose = False
 litellm.cache = None
 
 score = 0
@@ -48,17 +47,38 @@ first_openai_chunk_example = {
 
 def validate_first_format(chunk):
     # write a test to make sure chunk follows the same format as first_openai_chunk_example
-    assert isinstance(chunk, ModelResponse), "Chunk should be a dictionary."
+    assert isinstance(chunk, dict), "Chunk should be a dictionary."
+    assert "id" in chunk, "Chunk should have an 'id'."
     assert isinstance(chunk['id'], str), "'id' should be a string."
+    
+    assert "object" in chunk, "Chunk should have an 'object'."
     assert isinstance(chunk['object'], str), "'object' should be a string."
+
+    assert "created" in chunk, "Chunk should have a 'created'."
     assert isinstance(chunk['created'], int), "'created' should be an integer."
+
+    assert "model" in chunk, "Chunk should have a 'model'."
     assert isinstance(chunk['model'], str), "'model' should be a string."
+
+    assert "choices" in chunk, "Chunk should have 'choices'."
     assert isinstance(chunk['choices'], list), "'choices' should be a list."
 
     for choice in chunk['choices']:
+        assert isinstance(choice, dict), "Each choice should be a dictionary."
+
+        assert "index" in choice, "Each choice should have 'index'."
         assert isinstance(choice['index'], int), "'index' should be an integer."
+
+        assert "delta" in choice, "Each choice should have 'delta'." 
+        assert isinstance(choice['delta'], dict), "'delta' should be a dictionary."
+
+        assert "role" in choice['delta'], "'delta' should have a 'role'."
         assert isinstance(choice['delta']['role'], str), "'role' should be a string."
+
+        assert "content" in choice['delta'], "'delta' should have 'content'."
         assert isinstance(choice['delta']['content'], str), "'content' should be a string."
+
+        assert "finish_reason" in choice, "Each choice should have 'finish_reason'."
         assert (choice['finish_reason'] is None) or isinstance(choice['finish_reason'], str), "'finish_reason' should be None or a string."
 
 second_openai_chunk_example = {
@@ -78,16 +98,35 @@ second_openai_chunk_example = {
 }
 
 def validate_second_format(chunk):
-    assert isinstance(chunk, ModelResponse), "Chunk should be a dictionary."
+    assert isinstance(chunk, dict), "Chunk should be a dictionary."
+    assert "id" in chunk, "Chunk should have an 'id'."
     assert isinstance(chunk['id'], str), "'id' should be a string."
+    
+    assert "object" in chunk, "Chunk should have an 'object'."
     assert isinstance(chunk['object'], str), "'object' should be a string."
+
+    assert "created" in chunk, "Chunk should have a 'created'."
     assert isinstance(chunk['created'], int), "'created' should be an integer."
+
+    assert "model" in chunk, "Chunk should have a 'model'."
     assert isinstance(chunk['model'], str), "'model' should be a string."
+
+    assert "choices" in chunk, "Chunk should have 'choices'."
     assert isinstance(chunk['choices'], list), "'choices' should be a list."
 
     for choice in chunk['choices']:
+        assert isinstance(choice, dict), "Each choice should be a dictionary."
+
+        assert "index" in choice, "Each choice should have 'index'."
         assert isinstance(choice['index'], int), "'index' should be an integer."
+
+        assert "delta" in choice, "Each choice should have 'delta'." 
+        assert isinstance(choice['delta'], dict), "'delta' should be a dictionary."
+
+        assert "content" in choice['delta'], "'delta' should have 'content'."
         assert isinstance(choice['delta']['content'], str), "'content' should be a string."
+
+        assert "finish_reason" in choice, "Each choice should have 'finish_reason'."
         assert (choice['finish_reason'] is None) or isinstance(choice['finish_reason'], str), "'finish_reason' should be None or a string."
 
 last_openai_chunk_example = {
@@ -105,15 +144,32 @@ last_openai_chunk_example = {
 }
 
 def validate_last_format(chunk):
-    assert isinstance(chunk, ModelResponse), "Chunk should be a dictionary."
+    assert isinstance(chunk, dict), "Chunk should be a dictionary."
+    assert "id" in chunk, "Chunk should have an 'id'."
     assert isinstance(chunk['id'], str), "'id' should be a string."
+    
+    assert "object" in chunk, "Chunk should have an 'object'."
     assert isinstance(chunk['object'], str), "'object' should be a string."
+
+    assert "created" in chunk, "Chunk should have a 'created'."
     assert isinstance(chunk['created'], int), "'created' should be an integer."
+
+    assert "model" in chunk, "Chunk should have a 'model'."
     assert isinstance(chunk['model'], str), "'model' should be a string."
+
+    assert "choices" in chunk, "Chunk should have 'choices'."
     assert isinstance(chunk['choices'], list), "'choices' should be a list."
 
     for choice in chunk['choices']:
+        assert isinstance(choice, dict), "Each choice should be a dictionary."
+
+        assert "index" in choice, "Each choice should have 'index'."
         assert isinstance(choice['index'], int), "'index' should be an integer."
+
+        assert "delta" in choice, "Each choice should have 'delta'." 
+        assert isinstance(choice['delta'], dict), "'delta' should be a dictionary."
+
+        assert "finish_reason" in choice, "Each choice should have 'finish_reason'."
         assert isinstance(choice['finish_reason'], str), "'finish_reason' should be a string."
 
 def streaming_format_tests(idx, chunk):
@@ -138,7 +194,7 @@ def streaming_format_tests(idx, chunk):
     return extracted_chunk, finished
 
 # def test_completion_cohere_stream():
-# # this is a flaky test due to the cohere API endpoint being unstable
+# this is a flaky test due to the cohere API endpoint being unstable
 #     try:
 #         messages = [
 #             {"role": "system", "content": "You are a helpful assistant."},
@@ -351,7 +407,6 @@ def test_completion_cohere_stream_bad_key():
 
 def test_completion_azure_stream():
     try:
-        litellm.set_verbose = True
         messages = [
             {"role": "system", "content": "You are a helpful assistant."},
             {
@@ -374,7 +429,7 @@ def test_completion_azure_stream():
         print(f"completion_response: {complete_response}")
     except Exception as e:
         pytest.fail(f"Error occurred: {e}")
-test_completion_azure_stream() 
+# test_completion_azure_stream() 
 
 def test_completion_claude_stream():
     try:
@@ -466,7 +521,6 @@ def test_completion_palm_stream():
 def test_completion_claude_stream_bad_key():
     try:
         litellm.cache = None
-        litellm.set_verbose = True
         api_key = "bad-key"
         messages = [
             {"role": "system", "content": "You are a helpful assistant."},
@@ -495,7 +549,7 @@ def test_completion_claude_stream_bad_key():
         pytest.fail(f"Error occurred: {e}")
 
 
-# test_completion_claude_stream_bad_key() 
+test_completion_claude_stream_bad_key() 
 # test_completion_replicate_stream()
 
 # def test_completion_vertexai_stream():
@@ -637,38 +691,39 @@ def test_completion_replicate_stream_bad_key():
 
 # test_completion_replicate_stream_bad_key()
 
-def test_completion_bedrock_claude_stream():
-    try:
-        litellm.set_verbose=False
-        response = completion(
-            model="bedrock/anthropic.claude-instant-v1", 
-            messages=[{"role": "user", "content": "Be as verbose as possible and give as many details as possible, how does a court case get to the Supreme Court?"}],
-            temperature=1,
-            max_tokens=20,
-            stream=True,
-        )
-        print(response)
-        complete_response = ""
-        has_finish_reason = False
-        # Add any assertions here to check the response
-        for idx, chunk in enumerate(response):
-            # print
-            chunk, finished = streaming_format_tests(idx, chunk)
-            has_finish_reason = finished
-            complete_response += chunk
-            if finished:
-                break
-        if has_finish_reason is False:
-            raise Exception("finish reason not set for last chunk")
-        if complete_response.strip() == "": 
-            raise Exception("Empty response received")
-        print(f"completion_response: {complete_response}")
-    except RateLimitError:
-        pass
-    except Exception as e:
-        pytest.fail(f"Error occurred: {e}")
+# def test_completion_bedrock_claude_stream():
+#     try:
+#         litellm.set_verbose=False
+#         response = completion(
+#             model="bedrock/anthropic.claude-instant-v1", 
+#             messages=[{"role": "user", "content": "Be as verbose as possible and give as many details as possible, how does a court case get to the Supreme Court?"}],
+#             temperature=1,
+#             max_tokens=20,
+#             stream=True,
+#         )
+#         print(response)
+#         complete_response = ""
+#         has_finish_reason = False
+#         # Add any assertions here to check the response
+#         for idx, chunk in enumerate(response):
+#             # print
+#             chunk, finished = streaming_format_tests(idx, chunk)
+#             has_finish_reason = finished
+#             complete_response += chunk
+#             if finished:
+#                 break
+#         if has_finish_reason is False:
+#             raise Exception("finish reason not set for last chunk")
+#         if complete_response.strip() == "": 
+#             raise Exception("Empty response received")
+#         print(f"completion_response: {complete_response}")
+#     except RateLimitError:
+#         pass
+#     except Exception as e:
+#         pytest.fail(f"Error occurred: {e}")
 
 # test_completion_bedrock_claude_stream() 
+
 
 # def test_completion_sagemaker_stream():
 #     try:
@@ -769,6 +824,8 @@ def ai21_completion_call_bad_key():
         if complete_response.strip() == "": 
             raise Exception("Empty response received")
         print(f"completion_response: {complete_response}")
+    except InvalidRequestError as e: 
+        pass
     except:
         pytest.fail(f"error occurred: {traceback.format_exc()}")
 
@@ -828,7 +885,7 @@ def ai21_completion_call_bad_key():
 # test on openai completion call
 def test_openai_chat_completion_call():
     try:
-        litellm.set_verbose = False
+        litellm.set_verbose = True
         response = completion(
             model="gpt-3.5-turbo", messages=messages, stream=True
         )
@@ -836,7 +893,6 @@ def test_openai_chat_completion_call():
         start_time = time.time()
         for idx, chunk in enumerate(response):
             chunk, finished = streaming_format_tests(idx, chunk)
-            print(f"outside chunk: {chunk}")
             if finished:
                 break
             complete_response += chunk
@@ -872,7 +928,6 @@ def test_openai_text_completion_call():
         start_time = time.time()
         for idx, chunk in enumerate(response):
             chunk, finished = streaming_format_tests(idx, chunk)
-            print(f"chunk: {chunk}")
             complete_response += chunk
             if finished:
                 break
@@ -883,8 +938,6 @@ def test_openai_text_completion_call():
     except:
         print(f"error occurred: {traceback.format_exc()}")
         pass
-
-# test_openai_text_completion_call()
 
 # # test on together ai completion call - starcoder
 def test_together_ai_completion_call_starcoder():
@@ -939,7 +992,7 @@ def test_together_ai_completion_call_starcoder_bad_key():
         if complete_response == "":
             raise Exception("Empty response received")
         print(f"complete response: {complete_response}")
-    except BadRequestError as e:
+    except InvalidRequestError as e:
         pass
     except:
         print(f"error occurred: {traceback.format_exc()}")

@@ -39,11 +39,11 @@ from .integrations.weights_biases import WeightsBiasesLogger
 from .integrations.custom_logger import CustomLogger
 from .integrations.langfuse import LangFuseLogger
 from .integrations.litedebugger import LiteDebugger
-from openai import OpenAIError as OriginalError
-from openai._models import BaseModel as OpenAIObject
+from openai.error import OpenAIError as OriginalError
+from openai.openai_object import OpenAIObject
 from .exceptions import (
     AuthenticationError,
-    BadRequestError,
+    InvalidRequestError,
     RateLimitError,
     ServiceUnavailableError,
     OpenAIError,
@@ -53,7 +53,7 @@ from .exceptions import (
     APIError,
     BudgetExceededError
 )
-from typing import cast, List, Dict, Union, Optional, Literal
+from typing import cast, List, Dict, Union, Optional
 from .caching import Cache
 
 ####### ENVIRONMENT VARIABLES ####################
@@ -118,10 +118,6 @@ def map_finish_reason(finish_reason: str): # openai supports 5 stop sequences - 
         return "stop"
     return finish_reason
 
-class FunctionCall(OpenAIObject):
-    arguments: str
-    name: str
-
 class Message(OpenAIObject):
     def __init__(self, content="default", role="assistant", logprobs=None, function_call=None, **params):
         super(Message, self).__init__(**params)
@@ -129,43 +125,15 @@ class Message(OpenAIObject):
         self.role = role
         self._logprobs = logprobs
         if function_call: 
-            self.function_call = FunctionCall(**function_call)
-
-    def get(self, key, default=None):
-        # Custom .get() method to access attributes with a default value if the attribute doesn't exist
-        return getattr(self, key, default)
-    
-    def __getitem__(self, key):
-        # Allow dictionary-style access to attributes
-        return getattr(self, key)
-
-    def __setitem__(self, key, value):
-        # Allow dictionary-style assignment of attributes
-        setattr(self, key, value)
+            self.function_call = function_call
 
 class Delta(OpenAIObject):
-    def __init__(self, content=None, role=None, **params):
+    def __init__(self, content=None, logprobs=None, role=None, **params):
         super(Delta, self).__init__(**params)
         if content is not None:
             self.content = content
         if role:
             self.role = role
-    
-    def __contains__(self, key):
-        # Define custom behavior for the 'in' operator
-        return hasattr(self, key)
-
-    def get(self, key, default=None):
-        # Custom .get() method to access attributes with a default value if the attribute doesn't exist
-        return getattr(self, key, default)
-    
-    def __getitem__(self, key):
-        # Allow dictionary-style access to attributes
-        return getattr(self, key)
-
-    def __setitem__(self, key, value):
-        # Allow dictionary-style assignment of attributes
-        setattr(self, key, value)
 
 
 class Choices(OpenAIObject):
@@ -180,22 +148,6 @@ class Choices(OpenAIObject):
             self.message = Message(content=None)
         else:
             self.message = message
-    
-    def __contains__(self, key):
-        # Define custom behavior for the 'in' operator
-        return hasattr(self, key)
-
-    def get(self, key, default=None):
-        # Custom .get() method to access attributes with a default value if the attribute doesn't exist
-        return getattr(self, key, default)
-    
-    def __getitem__(self, key):
-        # Allow dictionary-style access to attributes
-        return getattr(self, key)
-
-    def __setitem__(self, key, value):
-        # Allow dictionary-style assignment of attributes
-        setattr(self, key, value)
 
 class Usage(OpenAIObject):
     def __init__(self, prompt_tokens=None, completion_tokens=None, total_tokens=None, **params):
@@ -206,149 +158,70 @@ class Usage(OpenAIObject):
             self.completion_tokens = completion_tokens
         if total_tokens:
             self.total_tokens = total_tokens
-    
-    def __contains__(self, key):
-        # Define custom behavior for the 'in' operator
-        return hasattr(self, key)
-    
-    def get(self, key, default=None):
-        # Custom .get() method to access attributes with a default value if the attribute doesn't exist
-        return getattr(self, key, default)
-    
-    def __getitem__(self, key):
-        # Allow dictionary-style access to attributes
-        return getattr(self, key)
-
-    def __setitem__(self, key, value):
-        # Allow dictionary-style assignment of attributes
-        setattr(self, key, value)
 
 class StreamingChoices(OpenAIObject):
     def __init__(self, finish_reason=None, index=0, delta: Optional[Delta]=None, **params):
         super(StreamingChoices, self).__init__(**params)
-        if finish_reason:
-            self.finish_reason = finish_reason
-        else:
-            self.finish_reason = None
+        self.finish_reason = finish_reason
         self.index = index
         if delta:
             self.delta = delta
         else:
             self.delta = Delta()
-    
-    def __contains__(self, key):
-        # Define custom behavior for the 'in' operator
-        return hasattr(self, key)
-    
-    def get(self, key, default=None):
-        # Custom .get() method to access attributes with a default value if the attribute doesn't exist
-        return getattr(self, key, default)
-    
-    def __getitem__(self, key):
-        # Allow dictionary-style access to attributes
-        return getattr(self, key)
 
-    def __setitem__(self, key, value):
-        # Allow dictionary-style assignment of attributes
-        setattr(self, key, value)
-
-class ModelResponse(OpenAIObject): 
-    id: str
-    """A unique identifier for the completion."""
-
-    choices: List[Union[Choices, StreamingChoices]]
-    """The list of completion choices the model generated for the input prompt."""
-
-    created: int
-    """The Unix timestamp (in seconds) of when the completion was created."""
-
-    model: Optional[str] = None
-    """The model used for completion."""
-
-    object: str
-    """The object type, which is always "text_completion" """
-
-    system_fingerprint: Optional[str] = None
-    """This fingerprint represents the backend configuration that the model runs with.
-
-    Can be used in conjunction with the `seed` request parameter to understand when
-    backend changes have been made that might impact determinism.
-    """
-
-    usage: Optional[Usage] = None
-    """Usage statistics for the completion request."""
-
-    _hidden_params: dict = {}
-
-    def __init__(self, id=None, choices=None, created=None, model=None, object=None, system_fingerprint=None, usage=None, stream=False, response_ms=None, hidden_params=None, **params):
+class ModelResponse(OpenAIObject):
+    def __init__(self, id=None, choices=None, created=None, model=None, usage=None, stream=False, response_ms=None, **params):
         if stream:
-            object = "chat.completion.chunk"
-            choices = [StreamingChoices()]
+            self.object = "chat.completion.chunk"
+            self.choices = [StreamingChoices()]
         else:
             if model in litellm.open_ai_embedding_models:
-                object = "embedding"
+                self.object = "embedding"
             else:
-                object = "chat.completion"
-            choices = [Choices()]
+                self.object = "chat.completion"
+            self.choices = [Choices()]
         if id is None:
-            id = _generate_id()
+            self.id = _generate_id()
         else:
-            id = id
+            self.id = id
         if created is None:
-            created = int(time.time())
+            self.created = int(time.time())
         else:
-            created = created
-        model = model
+            self.created = created
+        if response_ms:
+            self._response_ms = response_ms
+        else:
+            self._response_ms = None
+        self.model = model
         if usage:
-            usage = usage
+            self.usage = usage
         else:
-            usage = Usage()
-        if hidden_params:
-            self._hidden_params = hidden_params
-        super().__init__(id=id, choices=choices, created=created, model=model, object=object, system_fingerprint=system_fingerprint, usage=usage, **params)
-    
-    def __contains__(self, key):
-        # Define custom behavior for the 'in' operator
-        return hasattr(self, key)
-    
-    def get(self, key, default=None):
-        # Custom .get() method to access attributes with a default value if the attribute doesn't exist
-        return getattr(self, key, default)
-    
-    def __getitem__(self, key):
-        # Allow dictionary-style access to attributes
-        return getattr(self, key)
+            self.usage = Usage()
+        self._hidden_params = {} # used in case users want to access the original model response
+        super(ModelResponse, self).__init__(**params)
 
-    def __setitem__(self, key, value):
-        # Allow dictionary-style assignment of attributes
-        setattr(self, key, value)
+    def to_dict_recursive(self):
+        d = super().to_dict_recursive()
+        d["choices"] = [choice.to_dict_recursive() for choice in self.choices]
+        return d
+
+    def cost(self):
+        # for non streaming responses
+        return completion_cost(completion_response=self)
 
 class EmbeddingResponse(OpenAIObject):
-    def __init__(self, id=None, choices=None, created=None, model=None, usage=None, stream=False, response_ms=None):
-        object = "list"
+    def __init__(self, id=None, choices=None, created=None, model=None, usage=None, stream=False, response_ms=None, **params):
+        self.object = "list"
         if response_ms:
-            _response_ms = response_ms
+            self._response_ms = response_ms
         else:
-            _response_ms = None
-        data = []
-        model = model
-        super().__init__(id=id, choices=choices, created=created, model=model, object=object, data=data, usage=usage)
+            self._response_ms = None
+        self.data = []
+        self.model = model
 
-    def __contains__(self, key):
-        # Define custom behavior for the 'in' operator
-        return hasattr(self, key)
-    
-    def get(self, key, default=None):
-        # Custom .get() method to access attributes with a default value if the attribute doesn't exist
-        return getattr(self, key, default)
-    
-    def __getitem__(self, key):
-        # Allow dictionary-style access to attributes
-        return getattr(self, key)
-
-    def __setitem__(self, key, value):
-        # Allow dictionary-style assignment of attributes
-        setattr(self, key, value)
+    def to_dict_recursive(self):
+        d = super().to_dict_recursive()
+        return d
 
 class TextChoices(OpenAIObject):
     def __init__(self, finish_reason=None, index=0, text=None, logprobs=None, **params):
@@ -366,22 +239,6 @@ class TextChoices(OpenAIObject):
             self.logprobs = []
         else:
             self.logprobs = logprobs
-        
-    def __contains__(self, key):
-        # Define custom behavior for the 'in' operator
-        return hasattr(self, key)
-
-    def get(self, key, default=None):
-        # Custom .get() method to access attributes with a default value if the attribute doesn't exist
-        return getattr(self, key, default)
-    
-    def __getitem__(self, key):
-        # Allow dictionary-style access to attributes
-        return getattr(self, key)
-
-    def __setitem__(self, key, value):
-        # Allow dictionary-style assignment of attributes
-        setattr(self, key, value)
 
 class TextCompletionResponse(OpenAIObject):
     """
@@ -402,7 +259,6 @@ class TextCompletionResponse(OpenAIObject):
     }
     """
     def __init__(self, id=None, choices=None, created=None, model=None, usage=None, stream=False, response_ms=None, **params):
-        super(TextCompletionResponse, self).__init__(**params)
         if stream:
             self.object = "text_completion.chunk"
             self.choices = [TextChoices()]
@@ -427,23 +283,7 @@ class TextCompletionResponse(OpenAIObject):
         else:
             self.usage = Usage()
         self._hidden_params = {} # used in case users want to access the original model response
-
-    
-    def __contains__(self, key):
-        # Define custom behavior for the 'in' operator
-        return hasattr(self, key)
-
-    def get(self, key, default=None):
-        # Custom .get() method to access attributes with a default value if the attribute doesn't exist
-        return getattr(self, key, default)
-    
-    def __getitem__(self, key):
-        # Allow dictionary-style access to attributes
-        return getattr(self, key)
-
-    def __setitem__(self, key, value):
-        # Allow dictionary-style assignment of attributes
-        setattr(self, key, value)
+        super(TextCompletionResponse, self).__init__(**params)
 
 ############################################################
 def print_verbose(print_statement):
@@ -683,9 +523,7 @@ class Logging:
                     complete_streaming_response = litellm.stream_chunk_builder(self.streaming_chunks)
                 else:
                     self.streaming_chunks.append(result)
-            elif isinstance(result, OpenAIObject):
-                result = result.model_dump()
-
+            
             if complete_streaming_response: 
                 self.model_call_details["complete_streaming_response"] = complete_streaming_response
 
@@ -931,7 +769,7 @@ class Logging:
                         callback.log_failure_event(
                             start_time=start_time,
                             end_time=end_time,
-                            response_obj=result,
+                            messages=self.messages,
                             kwargs=self.model_call_details,
                         )
                 except Exception as e:
@@ -1111,7 +949,7 @@ def client(original_function):
                     if cached_result != None:
                         print_verbose(f"Cache Hit!")
                         call_type = original_function.__name__
-                        if call_type == CallTypes.completion.value and isinstance(cached_result, dict):
+                        if call_type == CallTypes.completion.value:
                             return convert_to_model_response_object(response_object=cached_result, model_response_object=ModelResponse())
                         else:
                             return cached_result
@@ -1156,8 +994,9 @@ def client(original_function):
                 context_window_fallback_dict = kwargs.get("context_window_fallback_dict", {})
 
                 if num_retries: 
-                    if (isinstance(e, openai.APIError) 
-                    or isinstance(e, openai.Timeout)):
+                    if (isinstance(e, openai.error.APIError) 
+                    or isinstance(e, openai.error.Timeout) 
+                    or isinstance(e, openai.error.ServiceUnavailableError)):
                         kwargs["num_retries"] = num_retries
                         return litellm.completion_with_retries(*args, **kwargs)
                 elif isinstance(e, litellm.exceptions.ContextWindowExceededError) and context_window_fallback_dict and model in context_window_fallback_dict:
@@ -1343,7 +1182,7 @@ def token_counter(model="", text=None,  messages: Optional[List] = None):
             enc = tokenizer_json["tokenizer"].encode(text)
             num_tokens = len(enc.ids)
         elif tokenizer_json["type"] == "openai_tokenizer": 
-            if model in litellm.open_ai_chat_completion_models and messages != None:
+            if messages is not None:
                 num_tokens = openai_token_counter(messages, model=model)
             else:
                 enc = tokenizer_json["tokenizer"].encode(text)
@@ -2011,11 +1850,6 @@ def get_llm_provider(model: str, custom_llm_provider: Optional[str] = None, api_
                 # anyscale is openai compatible, we just need to set this to custom_openai and have the api_base be https://api.endpoints.anyscale.com/v1
                 api_base = "https://api.endpoints.anyscale.com/v1"
                 dynamic_api_key = os.getenv("ANYSCALE_API_KEY")
-                custom_llm_provider = "custom_openai"
-            elif custom_llm_provider == "deepinfra": 
-                # deepinfra is openai compatible, we just need to set this to custom_openai and have the api_base be https://api.endpoints.anyscale.com/v1
-                api_base = "https://api.deepinfra.com/v1/openai"
-                dynamic_api_key = os.getenv("DEEPINFRA_API_KEY")
                 custom_llm_provider = "custom_openai"
             return model, custom_llm_provider, dynamic_api_key, api_base
 
@@ -2937,7 +2771,7 @@ def valid_model(model):
             messages = [{"role": "user", "content": "Hello World"}]
             litellm.completion(model=model, messages=messages)
     except:
-        raise BadRequestError(message="", model=model, llm_provider="")
+        raise InvalidRequestError(message="", model=model, llm_provider="")
 
 def check_valid_key(model: str, api_key: str):
     """
@@ -3004,7 +2838,7 @@ def register_prompt_template(model: str, roles: dict, initial_prompt_value: str 
     )
     ```
     """
-    model, _, _, _ = get_llm_provider(model=model)
+    model, _ = get_llm_provider(model=model)
     litellm.custom_prompt_dict[model] = {
         "roles": roles,
         "initial_prompt_value": initial_prompt_value,
@@ -3121,7 +2955,7 @@ def exception_type(
             exception_mapping_worked = True
             if custom_llm_provider == "openrouter":
                 if original_exception.http_status == 413:
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=str(original_exception),
                         model=model,
                         llm_provider="openrouter"
@@ -3141,21 +2975,19 @@ def exception_type(
             else:
                 exception_type = ""
             if custom_llm_provider == "openai" or custom_llm_provider == "text-completion-openai":
-                if "This model's maximum context length is" in error_str or "Request too large" in error_str:
+                if "This model's maximum context length is" in error_str:
                     exception_mapping_worked = True
                     raise ContextWindowExceededError(
                         message=f"OpenAIException - {original_exception.message}",
                         llm_provider="openai",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
-                elif "invalid_request_error" in error_str and "Incorrect API key provided" not in error_str:
+                elif "invalid_request_error" in error_str:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"OpenAIException - {original_exception.message}",
                         llm_provider="openai",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif hasattr(original_exception, "status_code"):
                     exception_mapping_worked = True
@@ -3164,36 +2996,25 @@ def exception_type(
                         raise AuthenticationError(
                             message=f"OpenAIException - {original_exception.message}",
                             llm_provider="openai",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 408:
                         exception_mapping_worked = True
                         raise Timeout(
                             message=f"OpenAIException - {original_exception.message}",
                             model=model,
-                            llm_provider="openai",
-                            request=original_exception.request
+                            llm_provider="openai"
                         )
                     if original_exception.status_code == 422:
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"OpenAIException - {original_exception.message}",
                             model=model,
                             llm_provider="openai",
-                            response=original_exception.response
                         )
                     elif original_exception.status_code == 429:
                         exception_mapping_worked = True
                         raise RateLimitError(
-                            message=f"OpenAIException - {original_exception.message}",
-                            model=model,
-                            llm_provider="openai",
-                            response=original_exception.response
-                        )
-                    elif original_exception.status_code == 504: # gateway timeout error
-                        exception_mapping_worked = True
-                        raise Timeout(
                             message=f"OpenAIException - {original_exception.message}",
                             model=model,
                             llm_provider="openai",
@@ -3204,8 +3025,7 @@ def exception_type(
                             status_code=original_exception.status_code, 
                             message=f"OpenAIException - {original_exception.message}",
                             llm_provider="openai",
-                            model=model,
-                            request=original_exception.request
+                            model=model
                         )
             elif custom_llm_provider == "anthropic":  # one of the anthropics
                 if hasattr(original_exception, "message"):
@@ -3214,16 +3034,14 @@ def exception_type(
                         raise ContextWindowExceededError(
                             message=original_exception.message, 
                             model=model,
-                            llm_provider="anthropic",
-                            response=original_exception.response
+                            llm_provider="anthropic"
                         )
                     if "Invalid API Key" in original_exception.message:
                         exception_mapping_worked = True
                         raise AuthenticationError(
                             message=original_exception.message, 
                             model=model,
-                            llm_provider="anthropic",
-                            response=original_exception.response
+                            llm_provider="anthropic"
                         )
                 if hasattr(original_exception, "status_code"):
                     print_verbose(f"status_code: {original_exception.status_code}")
@@ -3232,40 +3050,42 @@ def exception_type(
                         raise AuthenticationError(
                             message=f"AnthropicException - {original_exception.message}",
                             llm_provider="anthropic",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
-                    elif original_exception.status_code == 400 or original_exception.status_code == 413:
+                    elif original_exception.status_code == 400:
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"AnthropicException - {original_exception.message}",
                             model=model,
                             llm_provider="anthropic",
-                            response=original_exception.response
                         )
                     elif original_exception.status_code == 408:
                         exception_mapping_worked = True
                         raise Timeout(
                             message=f"AnthropicException - {original_exception.message}",
                             model=model,
+                            llm_provider="anthropic"
+                        )
+                    elif original_exception.status_code == 413:
+                        exception_mapping_worked = True
+                        raise InvalidRequestError(
+                            message=f"AnthropicException - {original_exception.message}",
+                            model=model,
                             llm_provider="anthropic",
-                            request=original_exception.request
                         )
                     elif original_exception.status_code == 429:
                         exception_mapping_worked = True
                         raise RateLimitError(
                             message=f"AnthropicException - {original_exception.message}",
                             llm_provider="anthropic",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 500:
                         exception_mapping_worked = True
                         raise ServiceUnavailableError(
                             message=f"AnthropicException - {original_exception.message}",
                             llm_provider="anthropic",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     else:
                         exception_mapping_worked = True
@@ -3273,8 +3093,7 @@ def exception_type(
                             status_code=original_exception.status_code,
                             message=f"AnthropicException - {original_exception.message}",
                             llm_provider="anthropic",
-                            model=model,
-                            request=original_exception.request
+                            model=model
                         )
             elif custom_llm_provider == "replicate":
                 if "Incorrect authentication token" in error_str:
@@ -3282,8 +3101,7 @@ def exception_type(
                     raise AuthenticationError(
                         message=f"ReplicateException - {error_str}",
                         llm_provider="replicate",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif "input is too long" in error_str:
                     exception_mapping_worked = True
@@ -3291,23 +3109,20 @@ def exception_type(
                         message=f"ReplicateException - {error_str}",
                         model=model,
                         llm_provider="replicate",
-                        response=original_exception.response
                     )
                 elif exception_type == "ModelError":
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"ReplicateException - {error_str}",
                         model=model,
                         llm_provider="replicate",
-                        response=original_exception.response
                     )
                 elif "Request was throttled" in error_str:
                     exception_mapping_worked = True
                     raise RateLimitError(
                         message=f"ReplicateException - {error_str}",
                         llm_provider="replicate",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif hasattr(original_exception, "status_code"):
                     if original_exception.status_code == 401:
@@ -3315,48 +3130,49 @@ def exception_type(
                         raise AuthenticationError(
                             message=f"ReplicateException - {original_exception.message}",
                             llm_provider="replicate",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
-                    elif original_exception.status_code == 400 or original_exception.status_code == 422 or original_exception.status_code == 413:
+                    elif original_exception.status_code == 400 or original_exception.status_code == 422:
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"ReplicateException - {original_exception.message}",
                             model=model,
                             llm_provider="replicate",
-                            response=original_exception.response
                         )
                     elif original_exception.status_code == 408:
                         exception_mapping_worked = True
                         raise Timeout(
                             message=f"ReplicateException - {original_exception.message}",
                             model=model,
+                            llm_provider="replicate"
+                        )
+                    elif original_exception.status_code == 413:
+                        exception_mapping_worked = True
+                        raise InvalidRequestError(
+                            message=f"ReplicateException - {original_exception.message}",
+                            model=model,
                             llm_provider="replicate",
-                            request=original_exception.request
                         )
                     elif original_exception.status_code == 429:
                         exception_mapping_worked = True
                         raise RateLimitError(
                             message=f"ReplicateException - {original_exception.message}",
                             llm_provider="replicate",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 500:
                         exception_mapping_worked = True
                         raise ServiceUnavailableError(
                             message=f"ReplicateException - {original_exception.message}",
                             llm_provider="replicate",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                 exception_mapping_worked = True
                 raise APIError(
                     status_code=500, 
                     message=f"ReplicateException - {str(original_exception)}",
                     llm_provider="replicate",
-                    model=model,
-                    request=original_exception.request
+                    model=model
                 )
             elif custom_llm_provider == "bedrock":
                 if "too many tokens" in error_str or "expected maxLength:" in error_str or "Input is too long" in error_str or "Too many input tokens" in error_str: 
@@ -3364,32 +3180,28 @@ def exception_type(
                     raise ContextWindowExceededError(
                         message=f"BedrockException: Context Window Error - {error_str}",
                         model=model, 
-                        llm_provider="bedrock",
-                        response=original_exception.response
+                        llm_provider="bedrock"
                     )
                 if "Malformed input request" in error_str:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"BedrockException - {error_str}", 
                         model=model, 
-                        llm_provider="bedrock",
-                        response=original_exception.response
+                        llm_provider="bedrock"
                     )
                 if "Unable to locate credentials" in error_str or "The security token included in the request is invalid" in error_str:
                     exception_mapping_worked = True
                     raise AuthenticationError(
                             message=f"BedrockException Invalid Authentication - {error_str}",
                             model=model, 
-                            llm_provider="bedrock",
-                            response=original_exception.response
+                            llm_provider="bedrock"
                     )
                 if "throttlingException" in error_str or "ThrottlingException" in error_str:
                     exception_mapping_worked = True
                     raise RateLimitError(
                             message=f"BedrockException: Rate Limit Error - {error_str}",
                             model=model, 
-                            llm_provider="bedrock",
-                            response=original_exception.response
+                            llm_provider="bedrock"
                     )
                 if hasattr(original_exception, "status_code"):
                     if original_exception.status_code == 500:
@@ -3397,45 +3209,40 @@ def exception_type(
                         raise ServiceUnavailableError(
                             message=f"BedrockException - {original_exception.message}",
                             llm_provider="bedrock",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 401:
                         exception_mapping_worked = True
                         raise AuthenticationError(
                             message=f"BedrockException - {original_exception.message}",
                             llm_provider="bedrock",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
             elif custom_llm_provider == "sagemaker": 
                 if "Unable to locate credentials" in error_str:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"SagemakerException - {error_str}", 
                         model=model, 
-                        llm_provider="sagemaker",
-                        response=original_exception.response
+                        llm_provider="sagemaker"
                     )
             elif custom_llm_provider == "vertex_ai":
                 if "Vertex AI API has not been used in project" in error_str or "Unable to find your project" in error_str:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"VertexAIException - {error_str}", 
                         model=model, 
-                        llm_provider="vertex_ai",
-                        response=original_exception.response
+                        llm_provider="vertex_ai"
                     )
             elif custom_llm_provider == "palm":
                 if "503 Getting metadata" in error_str:
                     # auth errors look like this
                     # 503 Getting metadata from plugin failed with error: Reauthentication is needed. Please run `gcloud auth application-default login` to reauthenticate.
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"PalmException - Invalid api key", 
                         model=model, 
-                        llm_provider="palm",
-                        response=original_exception.response
+                        llm_provider="palm"
                     )
                 if "400 Request payload size exceeds" in error_str:
                     exception_mapping_worked = True
@@ -3443,7 +3250,6 @@ def exception_type(
                         message=f"PalmException - {error_str}",
                         model=model,
                         llm_provider="palm",
-                        response=original_exception.response
                     )
                 # Dailed: Error occurred: 400 Request payload size exceeds the limit: 20000 bytes
             elif custom_llm_provider == "cohere":  # Cohere
@@ -3455,8 +3261,7 @@ def exception_type(
                     raise AuthenticationError(
                         message=f"CohereException - {original_exception.message}",
                         llm_provider="cohere",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif "too many tokens" in error_str:
                     exception_mapping_worked = True
@@ -3464,24 +3269,21 @@ def exception_type(
                         message=f"CohereException - {original_exception.message}",
                         model=model,
                         llm_provider="cohere",
-                        response=original_exception.response
                     )
                 elif hasattr(original_exception, "status_code"):
                     if original_exception.status_code == 400 or original_exception.status_code == 498:
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"CohereException - {original_exception.message}",
                             llm_provider="cohere",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 500:
                         exception_mapping_worked = True
                         raise ServiceUnavailableError(
                             message=f"CohereException - {original_exception.message}",
                             llm_provider="cohere",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                 elif (
                     "CohereConnectionError" in exception_type
@@ -3490,24 +3292,21 @@ def exception_type(
                     raise RateLimitError(
                         message=f"CohereException - {original_exception.message}",
                         llm_provider="cohere",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif "invalid type:" in error_str:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"CohereException - {original_exception.message}",
                         llm_provider="cohere",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif "Unexpected server error" in error_str:
                     exception_mapping_worked = True
                     raise ServiceUnavailableError(
                         message=f"CohereException - {original_exception.message}",
                         llm_provider="cohere",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 else:
                     if hasattr(original_exception, "status_code"):
@@ -3516,8 +3315,7 @@ def exception_type(
                             status_code=original_exception.status_code, 
                             message=f"CohereException - {original_exception.message}",
                             llm_provider="cohere",
-                            model=model,
-                            request=original_exception.request
+                            model=model
                         )
                     raise original_exception
             elif custom_llm_provider == "huggingface":
@@ -3526,16 +3324,14 @@ def exception_type(
                     raise ContextWindowExceededError(
                         message=error_str,
                         model=model,
-                        llm_provider="huggingface",
-                        response=original_exception.response
+                        llm_provider="huggingface"
                     )
                 elif "A valid user token is required" in error_str:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=error_str, 
                         llm_provider="huggingface",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 if hasattr(original_exception, "status_code"):
                     if original_exception.status_code == 401:
@@ -3543,32 +3339,28 @@ def exception_type(
                         raise AuthenticationError(
                             message=f"HuggingfaceException - {original_exception.message}",
                             llm_provider="huggingface",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 400:
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"HuggingfaceException - {original_exception.message}",
                             model=model,
                             llm_provider="huggingface",
-                            response=original_exception.response
                         )
                     elif original_exception.status_code == 408:
                         exception_mapping_worked = True
                         raise Timeout(
                             message=f"HuggingfaceException - {original_exception.message}",
                             model=model,
-                            llm_provider="huggingface",
-                            request=original_exception.request
+                            llm_provider="huggingface"
                         )
                     elif original_exception.status_code == 429:
                         exception_mapping_worked = True
                         raise RateLimitError(
                             message=f"HuggingfaceException - {original_exception.message}",
                             llm_provider="huggingface",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     else:
                         exception_mapping_worked = True
@@ -3576,8 +3368,7 @@ def exception_type(
                             status_code=original_exception.status_code, 
                             message=f"HuggingfaceException - {original_exception.message}",
                             llm_provider="huggingface",
-                            model=model,
-                            request=original_exception.request
+                            model=model
                         )
                 exception_mapping_worked = True
                 raise APIError(status_code=500, message=error_str, model=model, llm_provider=custom_llm_provider)
@@ -3588,16 +3379,14 @@ def exception_type(
                         raise ContextWindowExceededError(
                             message=f"AI21Exception - {original_exception.message}",
                             model=model,
-                            llm_provider="ai21",
-                            response=original_exception.response
+                            llm_provider="ai21"
                         )
                     if "Bad or missing API token." in original_exception.message: 
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"AI21Exception - {original_exception.message}",
                             model=model,
-                            llm_provider="ai21",
-                            response=original_exception.response
+                            llm_provider="ai21"
                         )
                 if hasattr(original_exception, "status_code"):
                     if original_exception.status_code == 401:
@@ -3605,32 +3394,27 @@ def exception_type(
                         raise AuthenticationError(
                             message=f"AI21Exception - {original_exception.message}",
                             llm_provider="ai21",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 408:
                         exception_mapping_worked = True
                         raise Timeout(
                             message=f"AI21Exception - {original_exception.message}",
                             model=model,
-                            llm_provider="ai21",
-                            request=original_exception.request
+                            llm_provider="ai21"
                         )
                     if original_exception.status_code == 422:
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"AI21Exception - {original_exception.message}",
                             model=model,
                             llm_provider="ai21",
-                            response=original_exception.response
                         )
                     elif original_exception.status_code == 429:
                         exception_mapping_worked = True
                         raise RateLimitError(
                             message=f"AI21Exception - {original_exception.message}",
                             llm_provider="ai21",
-                            model=model,
-                            response=original_exception.response
                         )
                     else:
                         exception_mapping_worked = True
@@ -3638,8 +3422,7 @@ def exception_type(
                             status_code=original_exception.status_code, 
                             message=f"AI21Exception - {original_exception.message}",
                             llm_provider="ai21",
-                            model=model,
-                            request=original_exception.request
+                            model=model
                         )
             elif custom_llm_provider == "nlp_cloud":
                 if "detail" in error_str:
@@ -3648,16 +3431,14 @@ def exception_type(
                         raise ContextWindowExceededError(
                             message=f"NLPCloudException - {error_str}",
                             model=model,
-                            llm_provider="nlp_cloud",
-                            response=original_exception.response
+                            llm_provider="nlp_cloud"
                         )
                     elif "value is not a valid" in error_str:
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"NLPCloudException - {error_str}",
                             model=model,
-                            llm_provider="nlp_cloud",
-                            response=original_exception.response
+                            llm_provider="nlp_cloud"
                         )
                     else: 
                         exception_mapping_worked = True
@@ -3665,41 +3446,35 @@ def exception_type(
                             status_code=500,
                             message=f"NLPCloudException - {error_str}",
                             model=model,
-                            llm_provider="nlp_cloud",
-                            request=original_exception.request
+                            llm_provider="nlp_cloud"
                         )
                 if hasattr(original_exception, "status_code"): # https://docs.nlpcloud.com/?shell#errors
                     if original_exception.status_code == 400 or original_exception.status_code == 406 or original_exception.status_code == 413 or original_exception.status_code == 422:
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"NLPCloudException - {original_exception.message}",
                             llm_provider="nlp_cloud",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 401 or original_exception.status_code == 403:
                         exception_mapping_worked = True
                         raise AuthenticationError(
                             message=f"NLPCloudException - {original_exception.message}",
                             llm_provider="nlp_cloud",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 522 or original_exception.status_code == 524:
                         exception_mapping_worked = True
                         raise Timeout(
                             message=f"NLPCloudException - {original_exception.message}",
                             model=model,
-                            llm_provider="nlp_cloud",
-                            request=original_exception.request
+                            llm_provider="nlp_cloud"
                         )
                     elif original_exception.status_code == 429 or original_exception.status_code == 402:
                         exception_mapping_worked = True
                         raise RateLimitError(
                             message=f"NLPCloudException - {original_exception.message}",
                             llm_provider="nlp_cloud",
-                            model=model,
-                            response=original_exception.response
                         )
                     elif original_exception.status_code == 500 or original_exception.status_code == 503:
                         exception_mapping_worked = True
@@ -3707,16 +3482,14 @@ def exception_type(
                             status_code=original_exception.status_code, 
                             message=f"NLPCloudException - {original_exception.message}",
                             llm_provider="nlp_cloud",
-                            model=model,
-                            request=original_exception.request
+                            model=model
                         )
                     elif original_exception.status_code == 504 or original_exception.status_code == 520:
                         exception_mapping_worked = True
                         raise ServiceUnavailableError(
                             message=f"NLPCloudException - {original_exception.message}",
                             model=model,
-                            llm_provider="nlp_cloud",
-                            response=original_exception.response
+                            llm_provider="nlp_cloud"
                         )
                     else:
                         exception_mapping_worked = True
@@ -3724,87 +3497,67 @@ def exception_type(
                             status_code=original_exception.status_code, 
                             message=f"NLPCloudException - {original_exception.message}",
                             llm_provider="nlp_cloud",
-                            model=model,
-                            request=original_exception.request
+                            model=model
                         )
             elif custom_llm_provider == "together_ai":
                 import json
-                try:
-                    error_response = json.loads(error_str)
-                except:
-                    error_response = {"error": error_str}
+                error_response = json.loads(error_str)
                 if "error" in error_response and "`inputs` tokens + `max_new_tokens` must be <=" in error_response["error"]:
                     exception_mapping_worked = True
                     raise ContextWindowExceededError(
                         message=f"TogetherAIException - {error_response['error']}",
                         model=model,
-                        llm_provider="together_ai",
-                        response=original_exception.response
+                        llm_provider="together_ai"
                     )
                 elif "error" in error_response and "invalid private key" in error_response["error"]:
                     exception_mapping_worked = True
                     raise AuthenticationError(
                         message=f"TogetherAIException - {error_response['error']}",
                         llm_provider="together_ai",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif "error" in error_response and "INVALID_ARGUMENT" in error_response["error"]:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"TogetherAIException - {error_response['error']}",
                         model=model,
-                        llm_provider="together_ai",
-                        response=original_exception.response
+                        llm_provider="together_ai"
                     )
-                
                 elif "error" in error_response and "API key doesn't match expected format." in error_response["error"]:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"TogetherAIException - {error_response['error']}",
                         model=model,
-                        llm_provider="together_ai",
-                        response=original_exception.response
+                        llm_provider="together_ai"
                     )
                 elif "error_type" in error_response and error_response["error_type"] == "validation":
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"TogetherAIException - {error_response['error']}",
                         model=model,
-                        llm_provider="together_ai",
-                        response=original_exception.response
+                        llm_provider="together_ai"
                     )
                 elif original_exception.status_code == 408:
                         exception_mapping_worked = True
                         raise Timeout(
                             message=f"TogetherAIException - {original_exception.message}",
                             model=model,
-                            llm_provider="together_ai",
-                            request=original_exception.request
+                            llm_provider="together_ai"
                         )
                 elif original_exception.status_code == 429:
                         exception_mapping_worked = True
                         raise RateLimitError(
                             message=f"TogetherAIException - {original_exception.message}",
                             llm_provider="together_ai",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
-                elif original_exception.status_code == 524:
-                    exception_mapping_worked = True
-                    raise Timeout(
-                        message=f"TogetherAIException - {original_exception.message}",
-                        llm_provider="together_ai",
-                        model=model,
-                    )
                 else: 
                     exception_mapping_worked = True
                     raise APIError(
                         status_code=original_exception.status_code, 
                         message=f"TogetherAIException - {original_exception.message}",
                         llm_provider="together_ai",
-                        model=model,
-                        request=original_exception.request
+                        model=model
                     )
             elif custom_llm_provider == "aleph_alpha":
                 if "This is longer than the model's maximum context length" in error_str:
@@ -3812,16 +3565,14 @@ def exception_type(
                     raise ContextWindowExceededError(
                         message=f"AlephAlphaException - {original_exception.message}",
                         llm_provider="aleph_alpha", 
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif "InvalidToken" in error_str or "No token provided" in error_str:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"AlephAlphaException - {original_exception.message}",
                         llm_provider="aleph_alpha", 
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif hasattr(original_exception, "status_code"):
                     print_verbose(f"status code: {original_exception.status_code}")
@@ -3834,27 +3585,24 @@ def exception_type(
                         )
                     elif original_exception.status_code == 400:
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"AlephAlphaException - {original_exception.message}",
                             llm_provider="aleph_alpha",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 429:
                         exception_mapping_worked = True
                         raise RateLimitError(
                             message=f"AlephAlphaException - {original_exception.message}",
                             llm_provider="aleph_alpha",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 500:
                         exception_mapping_worked = True
                         raise ServiceUnavailableError(
                             message=f"AlephAlphaException - {original_exception.message}",
                             llm_provider="aleph_alpha",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     raise original_exception
                 raise original_exception
@@ -3868,27 +3616,24 @@ def exception_type(
                     error_str = str(original_exception)
                 if "no such file or directory" in error_str:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                             message=f"OllamaException: Invalid Model/Model not loaded - {original_exception}",
                             model=model,
-                            llm_provider="ollama",
-                            response=original_exception.response
+                            llm_provider="ollama"
                         )
                 elif "Failed to establish a new connection" in error_str: 
                     exception_mapping_worked = True
                     raise ServiceUnavailableError(
                         message=f"OllamaException: {original_exception}",
                         llm_provider="ollama", 
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif "Invalid response object from API" in error_str:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"OllamaException: {original_exception}",
                         llm_provider="ollama",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
             elif custom_llm_provider == "vllm":
                 if hasattr(original_exception, "status_code"):
@@ -3905,16 +3650,14 @@ def exception_type(
                     raise ContextWindowExceededError(
                         message=f"AzureException - {original_exception.message}",
                         llm_provider="azure",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif "invalid_request_error" in error_str:
                     exception_mapping_worked = True
-                    raise BadRequestError(
+                    raise InvalidRequestError(
                         message=f"AzureException - {original_exception.message}",
                         llm_provider="azure",
-                        model=model,
-                        response=original_exception.response
+                        model=model
                     )
                 elif hasattr(original_exception, "status_code"):
                     exception_mapping_worked = True
@@ -3923,24 +3666,21 @@ def exception_type(
                         raise AuthenticationError(
                             message=f"AzureException - {original_exception.message}",
                             llm_provider="azure",
-                            model=model,
-                            response=original_exception.response
+                            model=model
                         )
                     elif original_exception.status_code == 408:
                         exception_mapping_worked = True
                         raise Timeout(
                             message=f"AzureException - {original_exception.message}",
                             model=model,
-                            llm_provider="azure",
-                            request=original_exception.request
+                            llm_provider="azure"
                         )
                     if original_exception.status_code == 422:
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"AzureException - {original_exception.message}",
                             model=model,
                             llm_provider="azure",
-                            response=original_exception.response
                         )
                     elif original_exception.status_code == 429:
                         exception_mapping_worked = True
@@ -3948,7 +3688,6 @@ def exception_type(
                             message=f"AzureException - {original_exception.message}",
                             model=model,
                             llm_provider="azure",
-                            response=original_exception.response
                         )
                     else:
                         exception_mapping_worked = True
@@ -3956,8 +3695,7 @@ def exception_type(
                             status_code=original_exception.status_code, 
                             message=f"AzureException - {original_exception.message}",
                             llm_provider="azure",
-                            model=model,
-                            request=original_exception.request
+                            model=model
                         )
             elif custom_llm_provider == "custom_openai" or custom_llm_provider == "maritalk":
                 if hasattr(original_exception, "status_code"):
@@ -3974,16 +3712,14 @@ def exception_type(
                         raise Timeout(
                             message=f"CustomOpenAIException - {original_exception.message}",
                             model=model,
-                            llm_provider="custom_openai",
-                            request=original_exception.request
+                            llm_provider="custom_openai"
                         )
                     if original_exception.status_code == 422:
                         exception_mapping_worked = True
-                        raise BadRequestError(
+                        raise InvalidRequestError(
                             message=f"CustomOpenAIException - {original_exception.message}",
                             model=model,
                             llm_provider="custom_openai",
-                            response=original_exception.response
                         )
                     elif original_exception.status_code == 429:
                         exception_mapping_worked = True
@@ -3991,7 +3727,6 @@ def exception_type(
                             message=f"CustomOpenAIException - {original_exception.message}",
                             model=model,
                             llm_provider="custom_openai",
-                            response=original_exception.response
                         )
                     else:
                         exception_mapping_worked = True
@@ -3999,20 +3734,17 @@ def exception_type(
                             status_code=original_exception.status_code, 
                             message=f"CustomOpenAIException - {original_exception.message}",
                             llm_provider="custom_openai",
-                            model=model,
-                            request=original_exception.request
+                            model=model
                         )
-        if "BadRequestError.__init__() missing 1 required positional argument: 'param'" in str(original_exception): # deal with edge-case invalid request error bug in openai-python sdk
-            exception_mapping_worked = True
-            raise BadRequestError(
+        exception_mapping_worked = True
+        if "InvalidRequestError.__init__() missing 1 required positional argument: 'param'" in str(original_exception): # deal with edge-case invalid request error bug in openai-python sdk
+            raise InvalidRequestError(
                 message=f"OpenAIException: This can happen due to missing AZURE_API_VERSION: {str(original_exception)}",
                 model=model, 
-                llm_provider=custom_llm_provider,
-                response=original_exception.response
+                llm_provider=custom_llm_provider
             )
         else:
-            # raise BadRequestError(message=str(original_exception), llm_provider=custom_llm_provider, model=model, response=original_exception.response)
-            raise original_exception
+            raise APIError(status_code=500, message=str(original_exception), llm_provider=custom_llm_provider, model=model)
     except Exception as e:
         # LOGGING
         exception_logging(
@@ -4304,10 +4036,10 @@ class CustomStreamWrapper:
             raise ValueError(f"Unable to parse response. Original response: {chunk}")
     
     def handle_azure_chunk(self, chunk):
+        chunk = chunk.decode("utf-8")
         is_finished = False
         finish_reason = ""
         text = ""
-        print_verbose(f"chunk: {chunk}")
         if "data: [DONE]" in chunk:
             text = ""
             is_finished = True
@@ -4320,7 +4052,6 @@ class CustomStreamWrapper:
                 if data_json["choices"][0].get("finish_reason", None): 
                     is_finished = True
                     finish_reason = data_json["choices"][0]["finish_reason"]
-                print_verbose(f"text: {text}; is_finished: {is_finished}; finish_reason: {finish_reason}")
                 return {"text": text, "is_finished": is_finished, "finish_reason": finish_reason}
             except:
                 raise ValueError(f"Unable to parse response. Original response: {chunk}")
@@ -4348,7 +4079,7 @@ class CustomStreamWrapper:
     
     def handle_openai_chat_completion_chunk(self, chunk): 
         try: 
-            str_line = chunk
+            str_line = chunk.decode("utf-8")  # Convert bytes to string
             text = "" 
             is_finished = False
             finish_reason = None
@@ -4379,24 +4110,17 @@ class CustomStreamWrapper:
 
     def handle_openai_text_completion_chunk(self, chunk):
         try: 
-            str_line = chunk
+            str_line = chunk.decode("utf-8")  # Convert bytes to string
             text = "" 
             is_finished = False
             finish_reason = None
-            print_verbose(f"str_line: {str_line}")
-            if "data: [DONE]" in str_line:
-                text = ""
-                is_finished = True
-                finish_reason = "stop"
-                return {"text": text, "is_finished": is_finished, "finish_reason": finish_reason}
-            elif str_line.startswith("data:"):
+            if str_line.startswith("data:"):
                 data_json = json.loads(str_line[5:])
-                print_verbose(f"delta content: {data_json}")
+                print_verbose(f"delta content: {data_json['choices'][0]['text']}")
                 text = data_json["choices"][0].get("text", "") 
                 if data_json["choices"][0].get("finish_reason", None): 
                     is_finished = True
                     finish_reason = data_json["choices"][0]["finish_reason"]
-                print_verbose(f"text: {text}; is_finished: {is_finished}; finish_reason: {finish_reason}")
                 return {"text": text, "is_finished": is_finished, "finish_reason": finish_reason}
             elif "error" in str_line:
                 raise ValueError(f"Unable to parse response. Original response: {str_line}")
@@ -4469,8 +4193,8 @@ class CustomStreamWrapper:
     
     def chunk_creator(self, chunk):
         model_response = ModelResponse(stream=True, model=self.model)
-        model_response.choices[0].finish_reason = None
         try:
+            
             # return this for all models
             completion_obj = {"content": ""}
             if self.custom_llm_provider and self.custom_llm_provider == "anthropic":
@@ -4504,12 +4228,8 @@ class CustomStreamWrapper:
             elif self.custom_llm_provider and self.custom_llm_provider == "azure": 
                 response_obj = self.handle_azure_chunk(chunk)
                 completion_obj["content"] = response_obj["text"]
-                print_verbose(f"response_obj: {response_obj}")
-                print_verbose(f"completion obj content: {completion_obj['content']}")
-                print_verbose(f"len(completion_obj['content']: {len(completion_obj['content'])}")
                 if response_obj["is_finished"]: 
                     model_response.choices[0].finish_reason = response_obj["finish_reason"]
-                    print_verbose(f"model_response finish reason 2: {model_response.choices[0].finish_reason}")
             elif self.custom_llm_provider and self.custom_llm_provider == "maritalk":
                 response_obj = self.handle_maritalk_chunk(chunk)
                 completion_obj["content"] = response_obj["text"]
@@ -4608,13 +4328,10 @@ class CustomStreamWrapper:
                 response_obj = self.handle_openai_chat_completion_chunk(chunk)
                 completion_obj["content"] = response_obj["text"]
                 print_verbose(f"completion obj content: {completion_obj['content']}")
-                print_verbose(f"len(completion_obj['content']: {len(completion_obj['content'])}")
                 if response_obj["is_finished"]: 
                     model_response.choices[0].finish_reason = response_obj["finish_reason"]
             
             model_response.model = self.model
-            print_verbose(f"model_response: {model_response}; completion_obj: {completion_obj}")
-            print_verbose(f"model_response finish reason 3: {model_response.choices[0].finish_reason}")
             if len(completion_obj["content"]) > 0: # cannot set content of an OpenAI Object to be an empty string
                 hold, model_response_str = self.check_special_tokens(completion_obj["content"])
                 if hold is False: 
@@ -4638,7 +4355,7 @@ class CustomStreamWrapper:
         except StopIteration:
             raise StopIteration
         except Exception as e: 
-            traceback_exception = traceback.format_exc()
+            traceback_exception = traceback.print_exc()
             e.message = str(e)
              # LOG FAILURE - handle streaming failure logging in the _next_ object, remove `handle_failure` once it's deprecated
             threading.Thread(target=self.logging_obj.failure_handler, args=(e, traceback_exception)).start()
@@ -4646,34 +4363,19 @@ class CustomStreamWrapper:
 
     ## needs to handle the empty string case (even starting chunk can be an empty string)
     def __next__(self):
-        try:
-            while True: 
-                if isinstance(self.completion_stream, str):
-                    chunk = self.completion_stream
-                else:
-                    chunk = next(self.completion_stream)
-                
-                print_verbose(f"chunk in __next__: {chunk}")
-                if chunk is not None:
-                    response = self.chunk_creator(chunk=chunk)
-                    print_verbose(f"response in __next__: {response}")
-                    if response is not None:
-                        return response
-        except StopIteration:
-            raise  # Re-raise StopIteration
-        except Exception as e:
-            # Handle other exceptions if needed
-            pass
-
-
-        
+        while True: # loop until a non-empty string is found
+            if isinstance(self.completion_stream, str):
+                chunk = self.completion_stream
+            else:
+                chunk = next(self.completion_stream)
+            response = self.chunk_creator(chunk=chunk)
+            if response is not None:
+                return response
+    
     async def __anext__(self):
         try:
-            if (self.custom_llm_provider == "openai" 
-                or self.custom_llm_provider == "azure"
-                or self.custom_llm_provider == "custom_openai"
-                or self.custom_llm_provider == "text-completion-openai"):
-                async for chunk in self.completion_stream:
+            if self.custom_llm_provider == "openai" or self.custom_llm_provider == "azure":
+                async for chunk in self.completion_stream.content:
                     if chunk == "None" or chunk is None:
                         raise Exception
                     processed_chunk = self.chunk_creator(chunk=chunk)

@@ -4,7 +4,7 @@ dotenv.load_dotenv()
 openai.api_key = os.getenv("ANTHROPIC_API_KEY") # this gets passed as a header 
 
 
-response1 = openai.chat.completions.create(
+response1 = openai.ChatCompletion.create(
     model = "claude-instant-1",
     messages = [
         {
@@ -21,7 +21,7 @@ except:
 
 time.sleep(1) # allow time for request to be stored 
 
-response2 = openai.chat.completions.create(
+response2 = openai.ChatCompletion.create(
     model = "claude-instant-1",
     messages = [
         {
@@ -39,7 +39,7 @@ except:
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 try: 
-    response3 = openai.chat.completions.create(
+    response3 = openai.ChatCompletion.create(
         model = "gpt-3.5-turbo",
         messages = [
             {
@@ -58,7 +58,7 @@ except:
 
 openai.api_key = os.getenv("ANTHROPIC_API_KEY") # this gets passed as a header 
 # switch caching off using cache flag
-response4 = openai.chat.completions.create(
+response4 = openai.ChatCompletion.create(
     model = "claude-instant-1",
     messages = [
         {
