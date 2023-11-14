@@ -56,7 +56,7 @@ from .llms.azure import AzureChatCompletion
 from .llms.prompt_templates.factory import prompt_factory, custom_prompt, function_call_prompt
 import tiktoken
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, List, Optional, Dict, Union
+from typing import Callable, List, Optional, Dict, Union, Mapping
 
 encoding = tiktoken.get_encoding("cl100k_base")
 from litellm.utils import (
@@ -78,6 +78,35 @@ openai_chat_completions = OpenAIChatCompletion()
 openai_text_completions = OpenAITextCompletion()
 azure_chat_completions = AzureChatCompletion()
 ####### COMPLETION ENDPOINTS ################
+
+class LiteLLM:
+
+  def __init__(self, *, 
+               api_key=None, 
+               organization: Optional[str] = None,
+               base_url: Optional[str]= None,
+               timeout: Optional[float] = 600,
+               max_retries: Optional[int] = litellm.num_retries,
+               default_headers: Optional[Mapping[str, str]] = None,):
+    self.params = locals()
+    self.chat = Chat(self.params)
+
+class Chat():
+
+  def __init__(self, params):
+    self.params = params
+    self.completions = Completions(self.params)
+
+class Completions():
+  
+  def __init__(self, params):
+    self.params = params
+
+  def create(self, model, messages, **kwargs):
+    for k, v in kwargs.items():
+        self.params[k] = v
+    response = completion(model=model, messages=messages, **self.params)
+    return response
 
 async def acompletion(*args, **kwargs):
     """
@@ -240,7 +269,7 @@ def completion(
     deployment_id = None,
 
     # set api_base, api_version, api_key
-    api_base: Optional[str] = None,
+    base_url: Optional[str] = None,
     api_version: Optional[str] = None,
     api_key: Optional[str] = None,
     model_list: Optional[list] = None, # pass in a list of api_base,keys, etc. 
@@ -288,6 +317,7 @@ def completion(
     """
     ######### unpacking kwargs #####################
     args = locals()
+    api_base = kwargs.get('api_base', None)
     return_async = kwargs.get('return_async', False)
     mock_response = kwargs.get('mock_response', None)
     force_timeout= kwargs.get('force_timeout', 600)
@@ -299,7 +329,8 @@ def completion(
     metadata = kwargs.get('metadata', None)
     fallbacks = kwargs.get('fallbacks', None)
     headers = kwargs.get("headers", None)
-    num_retries = kwargs.get("num_retries", None)
+    num_retries = kwargs.get("num_retries", None) ## deprecated
+    max_retries = kwargs.get("max_retries", None)
     context_window_fallback_dict = kwargs.get("context_window_fallback_dict", None)
     ### CUSTOM PROMPT TEMPLATE ### 
     initial_prompt_value = kwargs.get("intial_prompt_value", None)
@@ -309,13 +340,17 @@ def completion(
     eos_token = kwargs.get("eos_token", None)
     acompletion = kwargs.get("acompletion", False)
     ######## end of unpacking kwargs ###########
-    openai_params = ["functions", "function_call", "temperature", "temperature", "top_p", "n", "stream", "stop", "max_tokens", "presence_penalty", "frequency_penalty", "logit_bias", "user", "request_timeout", "api_base", "api_version", "api_key", "deployment_id"]
-    litellm_params = ["metadata", "acompletion", "caching", "return_async", "mock_response", "api_key", "api_version", "api_base", "force_timeout", "logger_fn", "verbose", "custom_llm_provider", "litellm_logging_obj", "litellm_call_id", "use_client", "id", "fallbacks", "azure", "headers", "model_list", "num_retries", "context_window_fallback_dict", "roles", "final_prompt_value", "bos_token", "eos_token", "request_timeout", "complete_response"]
+    openai_params = ["functions", "function_call", "temperature", "temperature", "top_p", "n", "stream", "stop", "max_tokens", "presence_penalty", "frequency_penalty", "logit_bias", "user", "request_timeout", "api_base", "api_version", "api_key", "deployment_id", "organization", "base_url", "default_headers", "timeout"]
+    litellm_params = ["metadata", "acompletion", "caching", "return_async", "mock_response", "api_key", "api_version", "api_base", "force_timeout", "logger_fn", "verbose", "custom_llm_provider", "litellm_logging_obj", "litellm_call_id", "use_client", "id", "fallbacks", "azure", "headers", "model_list", "num_retries", "context_window_fallback_dict", "roles", "final_prompt_value", "bos_token", "eos_token", "request_timeout", "complete_response", "self", "max_retries"]
     default_params = openai_params + litellm_params
     non_default_params = {k: v for k,v in kwargs.items() if k not in default_params} # model-specific params - pass them straight to the model/provider
     if mock_response:
         return mock_completion(model, messages, stream=stream, mock_response=mock_response)
     try:
+        if base_url: 
+            api_base = base_url
+        if max_retries: 
+            num_retries = max_retries
         logging = litellm_logging_obj
         fallbacks = (
             fallbacks
@@ -648,8 +683,11 @@ def completion(
             response = model_response
 
         elif custom_llm_provider=="anthropic":
-            anthropic_key = (
-                api_key or litellm.anthropic_key or os.environ.get("ANTHROPIC_API_KEY") or litellm.api_key
+            api_key = (
+                api_key 
+                or litellm.anthropic_key 
+                or litellm.api_key
+                or os.environ.get("ANTHROPIC_API_KEY") 
             )
             api_base = (
                 api_base
@@ -672,7 +710,7 @@ def completion(
                 litellm_params=litellm_params,
                 logger_fn=logger_fn,
                 encoding=encoding, # for calculating input/output tokens
-                api_key=anthropic_key,
+                api_key=api_key,
                 logging_obj=logging, 
             )
             if "stream" in optional_params and optional_params["stream"] == True:
@@ -877,28 +915,39 @@ def completion(
                 return response
             response = model_response
         elif model in litellm.openrouter_models or custom_llm_provider == "openrouter":
-            openai.api_type = "openai"
-            # not sure if this will work after someone first uses another API
-            openai.base_url = (
-                litellm.api_base
-                if litellm.api_base is not None
-                else "https://openrouter.ai/api/v1"
+            api_base = (
+                api_base
+                or litellm.api_base
+                or  "https://openrouter.ai/api/v1"
             )
-            openai.api_version = None
-            if litellm.organization:
-                openai.organization = litellm.organization
-            if api_key:
-                openai.api_key = api_key
-            elif litellm.openrouter_key:
-                openai.api_key = litellm.openrouter_key
-            else:
-                openai.api_key = get_secret("OPENROUTER_API_KEY") or get_secret(
-                    "OR_API_KEY"
-                ) or litellm.api_key
+
+            api_key = (
+                api_key or
+                litellm.api_key or
+                litellm.openrouter_key or
+                get_secret("OPENROUTER_API_KEY") or 
+                get_secret("OR_API_KEY")
+            )
+
+            openrouter_site_url = (
+                get_secret("OR_SITE_URL")
+                or "https://litellm.ai"
+            )
+
+            openrouter_app_name = (
+                get_secret("OR_APP_NAME")
+                or "liteLLM"
+            )
 
             headers = (
                 headers or
-                litellm.headers
+                litellm.headers or 
+                {
+                    "HTTP-Referer": openrouter_site_url,
+                    "X-Title": openrouter_app_name,
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}"
+                }
             )
 
             data = {
@@ -909,27 +958,44 @@ def completion(
             ## LOGGING
             logging.pre_call(input=messages, api_key=openai.api_key, additional_args={"complete_input_dict": data, "headers": headers})
             ## COMPLETION CALL
-            if headers:
-                response = openai.chat.completions.create(
-                    headers=headers, # type: ignore
-                    **data, # type: ignore
-                )
-            else:
-                openrouter_site_url = get_secret("OR_SITE_URL")
-                openrouter_app_name = get_secret("OR_APP_NAME")
-                # if openrouter_site_url is None, set it to https://litellm.ai
-                if openrouter_site_url is None:
-                    openrouter_site_url = "https://litellm.ai"
-                # if openrouter_app_name is None, set it to liteLLM
-                if openrouter_app_name is None:
-                    openrouter_app_name = "liteLLM"
-                response = openai.chat.completions.create( # type: ignore
-                    extra_headers=httpx.Headers({ # type: ignore
-                        "HTTP-Referer": openrouter_site_url,  # type: ignore
-                        "X-Title": openrouter_app_name,  # type: ignore
-                    }), # type: ignore
-                    **data,
-                )
+
+            ## COMPLETION CALL
+            response = openai_chat_completions.completion(
+                model=model,
+                messages=messages,
+                headers=headers,
+                api_key=api_key,
+                api_base=api_base,
+                model_response=model_response,
+                print_verbose=print_verbose,
+                optional_params=optional_params,
+                litellm_params=litellm_params,
+                logger_fn=logger_fn,
+                logging_obj=logging, 
+                acompletion=acompletion
+            )
+
+            # if headers:
+            #     response = openai.chat.completions.create(
+            #         headers=headers, # type: ignore
+            #         **data, # type: ignore
+            #     )
+            # else:
+            #     openrouter_site_url = get_secret("OR_SITE_URL")
+            #     openrouter_app_name = get_secret("OR_APP_NAME")
+            #     # if openrouter_site_url is None, set it to https://litellm.ai
+            #     if openrouter_site_url is None:
+            #         openrouter_site_url = "https://litellm.ai"
+            #     # if openrouter_app_name is None, set it to liteLLM
+            #     if openrouter_app_name is None:
+            #         openrouter_app_name = "liteLLM"
+            #     response = openai.chat.completions.create( # type: ignore
+            #         extra_headers=httpx.Headers({ # type: ignore
+            #             "HTTP-Referer": openrouter_site_url,  # type: ignore
+            #             "X-Title": openrouter_app_name,  # type: ignore
+            #         }), # type: ignore
+            #         **data,
+            #     )
             ## LOGGING
             logging.post_call(
                 input=messages, api_key=openai.api_key, original_response=response
@@ -1961,7 +2027,7 @@ def moderation(input: str, api_key: Optional[str]=None):
     openai.api_key = api_key
     openai.api_type = "open_ai" # type: ignore
     openai.api_version = None
-    openai.base_url = "https://api.openai.com/v1"
+    openai.base_url = "https://api.openai.com/v1/"
     response = openai.moderations.create(input=input)
     return response
 
